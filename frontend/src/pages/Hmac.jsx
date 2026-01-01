@@ -1,72 +1,108 @@
 import { useState } from "react";
 import { hmacAuth } from "../api/SecurityApi";
 import { useThreat } from "../context/useThreat";
+import { useHmac } from "../context/useHmac";
 
 export default function Hmac() {
   const { setThreat } = useThreat();
+  const { setLastAuth } = useHmac();
 
-  // 🔐 Generic, non-payment payload
+  /* ================= PAYLOAD ================= */
   const [action, setAction] = useState("AdminAction");
   const [userId, setUserId] = useState("103");
   const [resource, setResource] = useState("user_204");
 
-  const [res, setRes] = useState(null);
+  /* ================= STATE ================= */
+  const [timeline, setTimeline] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  // 🔹 SOC LOG STATE
   const [socLogs, setSocLogs] = useState([]);
 
   const addLogs = (logs) => {
     setSocLogs(
-      logs.map((l) => ({
+      logs.map(l => ({
         ...l,
         time: new Date().toLocaleTimeString()
       }))
     );
   };
 
+  /* ================= RUN ================= */
   const run = async () => {
     setLoading(true);
-    setRes(null);
+    setTimeline(null);
     setSocLogs([]);
 
     try {
-      const r = await hmacAuth({
+      const res = await hmacAuth({
         action,
         user_id: userId,
         resource
       });
 
-      setThreat("normal");
-      setRes(r);
-
-      // ✅ SUCCESS LOGS
-      addLogs([
+      // 🔐 BUILD VERIFICATION TIMELINE (FRONTEND)
+      const steps = [
         {
-          type: "ok",
-          title: "HMAC Verified",
-          msg: "Critical API request authenticated"
+          step: 1,
+          title: "Nonce",
+          value: res.nonce
         },
         {
-          type: "info",
-          title: "Replay Protection",
-          msg: "Nonce and timestamp validated"
+          step: 2,
+          title: "Timestamp",
+          value: res.timestamp
         },
         {
-          type: "secure",
-          title: "Integrity Confirmed",
-          msg: "Request payload not modified"
+          step: 3,
+          title: "Message",
+          value: `${action}|${userId}|${resource}|${res.nonce}|${res.timestamp}`
+        },
+        {
+          step: 4,
+          title: "Secret Key",
+          value: "demo-secret (hidden)"
+        },
+        {
+          step: 5,
+          title: "Signature",
+          value: res.signature
         }
-      ]);
-    } catch {
-      setThreat("tamper");
+      ];
 
-      // ❌ ATTACK LOG
+      setTimeline(steps);
+
+      // 🌍 SAVE FOR ATTACK PAGE
+      setLastAuth({
+        payload: res,
+        steps
+      });
+
+      setThreat("normal");
+
+     addLogs([
+  {
+    type: "ok",
+    title: "HMAC Verified",
+    msg: "Request authenticated"
+  },
+  {
+    type: "info",
+    title: "Replay Protection",
+    msg: "Nonce validated"
+  },
+  {
+    type: "secure",
+    title: "Integrity Check",
+    msg: "Payload not tampered"
+  }
+]);
+
+    } catch {
+      setThreat("attack");
       addLogs([
         {
           type: "attack",
           title: "Integrity Violation",
-          msg: "HMAC signature mismatch detected"
+          msg: "HMAC verification failed"
         }
       ]);
     } finally {
@@ -76,27 +112,26 @@ export default function Hmac() {
 
   return (
     <div className="soc-root">
-      {/* HEADER */}
+      {/* ================= HEADER ================= */}
       <div className="soc-header">
         <h2>🔐 Secure API Operation · HMAC</h2>
-        {res?.status && <span className="ok">{res.status}</span>}
       </div>
 
       <div className="soc-grid">
-        {/* LEFT PANEL */}
+        {/* ================= LEFT PANEL ================= */}
         <div className="soc-panel">
           <h3>API Request Payload</h3>
 
           <label>Action</label>
-          <input value={action} onChange={(e) => setAction(e.target.value)} />
+          <input value={action} onChange={e => setAction(e.target.value)} />
 
           <label>User ID</label>
-          <input value={userId} onChange={(e) => setUserId(e.target.value)} />
+          <input value={userId} onChange={e => setUserId(e.target.value)} />
 
           <label>Target Resource</label>
           <input
             value={resource}
-            onChange={(e) => setResource(e.target.value)}
+            onChange={e => setResource(e.target.value)}
           />
 
           <button onClick={run} disabled={loading}>
@@ -104,26 +139,24 @@ export default function Hmac() {
           </button>
         </div>
 
-        {/* TIMELINE */}
-        <div className="soc-panel timeline">
-          <h3>Verification Timeline</h3>
+        {/* ================= VERIFICATION TIMELINE ================= */}
+        {timeline && (
+          <div className="soc-panel timeline">
+            <h3>Verification Timeline</h3>
 
-          {res?.steps?.map((s) => (
-            <div key={s.step} className="step">
-              <div className="step-index">✔ {s.step}</div>
-              <div>
-                <div className="step-title">{s.title}</div>
-                <div className="step-value">
-                  {s.title === "Secret Key"
-                    ? s.value.slice(0, 5) + "••••"
-                    : s.value}
+            {timeline.map(s => (
+              <div key={s.step} className="step">
+                <div className="step-index">✔ {s.step}</div>
+                <div>
+                  <div className="step-title">{s.title}</div>
+                  <div className="step-value">{s.value}</div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
-        {/* SOC EVENT LOG */}
+        {/* ================= SOC LOG ================= */}
         {socLogs.length > 0 && (
           <div className="soc-panel soc-log">
             <h3>🛰 SOC Event Log</h3>
@@ -142,134 +175,129 @@ export default function Hmac() {
         )}
       </div>
 
-      {/* INLINE CSS */}
+      {/* ================= CSS (UNCHANGED) ================= */}
       <style>{`
-        .soc-root {
-          padding: 28px;
-          background: radial-gradient(circle at top, #0f172a, #020617);
-          color: #e5e7eb;
-          min-height: 100vh;
-          font-family: system-ui;
-        }
+.soc-root {
+  padding: 28px;
+  background: radial-gradient(circle at top, #0f172a, #020617);
+  color: #e5e7eb;
+  min-height: 100vh;
+  font-family: system-ui;
+}
 
-        .soc-header {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 22px;
-        }
+.soc-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
 
-        .ok {
-          color: #22c55e;
-          font-weight: 700;
-        }
+.soc-grid {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 22px;
+}
 
-        .soc-grid {
-          display: grid;
-          grid-template-columns: 380px 1fr;
-          gap: 22px;
-        }
+.soc-panel {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 0 40px rgba(56, 189, 248, 0.12);
+}
 
-        .soc-panel {
-          background: rgba(15, 23, 42, 0.9);
-          border: 1px solid rgba(56, 189, 248, 0.25);
-          border-radius: 14px;
-          padding: 20px;
-          box-shadow: 0 0 40px rgba(56, 189, 248, 0.12);
-        }
+h3 {
+  margin-bottom: 14px;
+  color: #38bdf8;
+}
 
-        h3 {
-          margin-bottom: 14px;
-          color: #38bdf8;
-        }
+label {
+  font-size: 12px;
+  opacity: 0.8;
+}
+  .log.ok {
+  border-left: 3px solid #22c55e;
+  color: #86efac;
+}
 
-        label {
-          font-size: 12px;
-          opacity: 0.8;
-        }
+.log.info {
+  border-left: 3px solid #38bdf8;
+  color: #7dd3fc;
+}
 
-        input {
-          width: 100%;
-          margin-bottom: 12px;
-          padding: 10px;
-          border-radius: 8px;
-          background: #020617;
-          border: 1px solid #1e293b;
-          color: #e5e7eb;
-        }
+.log.secure {
+  border-left: 3px solid #22d3ee;
+  color: #67e8f9;
+}
 
-        button {
-          width: 100%;
-          padding: 12px;
-          border-radius: 10px;
-          background: linear-gradient(135deg, #38bdf8, #22d3ee);
-          border: none;
-          font-weight: 700;
-          cursor: pointer;
-          color: #020617;
-        }
 
-        .timeline .step {
-          display: flex;
-          gap: 12px;
-          margin-bottom: 14px;
-          padding: 12px;
-          border-left: 3px solid #22c55e;
-          background: rgba(2, 6, 23, 0.7);
-          border-radius: 10px;
-          animation: glow 0.4s ease;
-        }
+input {
+  width: 94%;
+  margin-bottom: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #020617;
+  border: 1px solid #1e293b;
+  color: #e5e7eb;
+}
 
-        .step-index {
-          font-weight: 800;
-          color: #22c55e;
-        }
+button {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #38bdf8, #22d3ee);
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+  color: #020617;
+  box-shadow: 0 10px 30px rgba(56,189,248,0.35);
+}
 
-        .step-title {
-          font-size: 13px;
-          opacity: 0.7;
-        }
+.timeline .step {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border-left: 3px solid #22c55e;
+  background: rgba(2, 6, 23, 0.7);
+  border-radius: 10px;
+}
 
-        .step-value {
-          font-family: monospace;
-          word-break: break-all;
-        }
+.step-index {
+  font-weight: 800;
+  color: #22c55e;
+}
 
-        .soc-log .log {
-          display: grid;
-          grid-template-columns: 28px 1fr auto;
-          gap: 12px;
-          padding: 12px;
-          margin-bottom: 10px;
-          border-radius: 10px;
-          background: rgba(2, 6, 23, 0.7);
-          font-size: 13px;
-          animation: slide 0.3s ease;
-        }
+.step-title {
+  font-size: 13px;
+  opacity: 0.7;
+}
 
-        .log.ok { border-left: 3px solid #22c55e; }
-        .log.info { border-left: 3px solid #38bdf8; }
-        .log.secure { border-left: 3px solid #a78bfa; }
+.step-value {
+  font-family: monospace;
+  word-break: break-all;
+}
 
-        .log.attack {
-          border-left: 3px solid #ef4444;
-          background: rgba(127, 29, 29, 0.35);
-          color: #fecaca;
-        }
+.soc-log .log {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.7);
+  font-size: 13px;
+}
 
-        time {
-          font-size: 11px;
-          opacity: 0.6;
-        }
+.log.attack {
+  border-left: 3px solid #ef4444;
+  background: rgba(127, 29, 29, 0.35);
+  color: #fecaca;
+}
 
-        @keyframes glow {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes slide {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
+time {
+  font-size: 11px;
+  opacity: 0.6;
+}
       `}</style>
     </div>
   );

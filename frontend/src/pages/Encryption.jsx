@@ -31,28 +31,34 @@ export default function Encryption() {
 
   /* ================= ENCRYPT ================= */
   const runEncrypt = async () => {
-    if (!data || loading) return;
+  if (!data || loading) return;
 
-    setLoading(true);
-    setResult(null);
-    setVerifyResult(null);
+  setLoading(true);
+  setResult(null);
+  setVerifyResult(null);
 
-    logEvent("info", "AES encryption initialized");
+  logEvent("info", "AES encryption initialized");
 
-    try {
-      const res = await encryptAES(data);
-      setResult(res.steps);
+  try {
+    const res = await encryptAES(data);
 
-      logEvent("success", "AES key generated");
-      logEvent("success", "Nonce generated");
-      logEvent("success", "Ciphertext created");
-    }catch (e) {
-  console.error(e);
-  logEvent("danger", "Encryption failed");
-}
+    // ✅ FIX HERE
+    setResult({
+      key: res.key,
+      nonce: res.nonce,
+      ciphertext: res.ciphertext
+    });
 
-    setLoading(false);
-  };
+    logEvent("success", "AES key generated");
+    logEvent("success", "Nonce generated");
+    logEvent("success", "Ciphertext created");
+  } catch (e) {
+    console.error(e);
+    logEvent("danger", "Encryption failed");
+  }
+
+  setLoading(false);
+};
 
   /* ================= VERIFY ================= */
   const runVerify = async () => {

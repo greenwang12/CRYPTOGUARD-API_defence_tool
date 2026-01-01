@@ -15,10 +15,7 @@ from argon2.low_level import Type
 USED_NONCES = set()
 
 AES_KEY = os.getenv("AES_KEY")
-if AES_KEY:
-    AES_KEY = AES_KEY.encode()
-else:
-    AES_KEY = os.urandom(32)
+AES_KEY = AES_KEY.encode() if AES_KEY else os.urandom(32)
 
 HMAC_SECRET = os.getenv("HMAC_SECRET", "demo-secret")
 
@@ -32,13 +29,11 @@ ph = PasswordHasher(
 )
 
 # ===============================
-# ARGON2 PASSWORD HASHING
+# ARGON2 (DEMO)
 # ===============================
 
 def hash_password_with_steps(password: str):
     hashed = ph.hash(password)
-
-    # $argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>
     salt = hashed.split("$")[4]
 
     return {
@@ -56,32 +51,25 @@ def hash_password_with_steps(password: str):
     }
 
 # ===============================
-# AES ENCRYPTION
+# AES (DEMO)
 # ===============================
 
 def encrypt_and_verify_aes(data: str):
     aes = AESGCM(AES_KEY)
-
     nonce = os.urandom(12)
     ciphertext = aes.encrypt(nonce, data.encode(), None)
 
     return {
         "algorithm": "AES-256-GCM",
         "status": "Encrypted",
-        "steps": {
-            "key": AES_KEY.hex(),        # demo only
-            "nonce": nonce.hex(),
-            "ciphertext": ciphertext.hex()
-        }
+        "key": AES_KEY.hex(),          # ✅ ADDED (demo only)
+        "nonce": nonce.hex(),
+        "ciphertext": ciphertext.hex()
     }
 
-# ===============================
-# AES DECRYPTION
-# ===============================
 
 def decrypt_and_verify_aes(ciphertext: str, nonce: str):
     aes = AESGCM(AES_KEY)
-
     try:
         plaintext = aes.decrypt(
             bytes.fromhex(nonce),
@@ -94,38 +82,18 @@ def decrypt_and_verify_aes(ciphertext: str, nonce: str):
             "status": "Verified",
             "plaintext": plaintext
         }
-
     except Exception:
         raise ValueError("Integrity verification failed")
 
-
-
 # ===============================
-# HMAC AUTHENTICATION
+# HMAC GENERATION (FRONTEND DEMO SUPPORT)
 # ===============================
 
-def hmac_auth_with_steps(
-    action: str,
-    user_id: str,
-    resource: str,          # ✅ renamed
-    secret: str,
-    nonce: str = None,
-    timestamp: str = None
-):
-    nonce = nonce or uuid.uuid4().hex[:12]
-    timestamp = timestamp or str(int(time.time()))
+def hmac_auth_with_steps(action, user_id, resource, secret):
+    nonce = uuid.uuid4().hex[:12]
+    timestamp = str(int(time.time()))
 
-    if nonce in USED_NONCES:
-        return {
-            "status": "Blocked",
-            "reason": "Replay attack detected"
-        }
-
-    USED_NONCES.add(nonce)
-
-    # 🔐 HMAC message (domain-neutral)
     message = f"{action}|{user_id}|{resource}|{nonce}|{timestamp}"
-
     signature = hmac.new(
         secret.encode(),
         message.encode(),
@@ -134,12 +102,43 @@ def hmac_auth_with_steps(
 
     return {
         "algorithm": "HMAC-SHA256",
-        "status": "Request authenticated",
-        "steps": [
-            {"step": 1, "title": "Nonce", "value": nonce},
-            {"step": 2, "title": "Timestamp", "value": timestamp},
-            {"step": 3, "title": "Message", "value": message},
-            {"step": 4, "title": "Secret Key", "value": secret},
-            {"step": 5, "title": "Signature", "value": signature}
-        ]
+        "status": "Generated",
+        "nonce": nonce,
+        "timestamp": timestamp,
+        "signature": signature
     }
+
+# ===============================
+# HMAC VERIFICATION (REAL SECURITY)
+# ===============================
+
+def verify_hmac_request(
+    action: str,
+    user_id: str,
+    resource: str,
+    nonce: str,
+    timestamp: str,
+    signature: str
+):
+    # 1️⃣ Replay protection (nonce reuse)
+    if nonce in USED_NONCES:
+        raise ValueError("Replay attack detected (nonce reused)")
+
+    # 2️⃣ Timestamp freshness (30 seconds window)
+    if abs(int(time.time()) - int(timestamp)) > 30:
+        raise ValueError("Stale request detected")
+
+    # 3️⃣ Recompute HMAC on backend
+    message = f"{action}|{user_id}|{resource}|{nonce}|{timestamp}"
+    expected_signature = hmac.new(
+        HMAC_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    # 4️⃣ Payload integrity check
+    if not hmac.compare_digest(expected_signature, signature):
+        raise ValueError("HMAC signature mismatch (payload tampered)")
+
+    # 5️⃣ Mark nonce as used ONLY after full verification
+    USED_NONCES.add(nonce)
